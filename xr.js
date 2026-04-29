@@ -57,10 +57,12 @@
   const rayMat = new THREE.LineBasicMaterial({
     color: 0x88ccff, transparent: true, opacity: 0.45,
   });
-  ctrl.forEach(c => {
+  let _leftRay = null;
+  ctrl.forEach((c, i) => {
     const line = new THREE.Line(rayGeo.clone(), rayMat.clone());
     line.scale.z = 4;
     c.add(line);
+    if (i === 1) _leftRay = line; // track left controller ray to hide during arc aiming
   });
 
   /* ── Teleport reticle (ring on floor) ── */
@@ -73,12 +75,32 @@
   reticle.visible = false;
   scene.add(reticle);
 
+  /* ── Teleport arc line (parabolic trajectory visualiser) ── */
+  const ARC_STEPS    = 30;
+  const arcPositions = new Float32Array(ARC_STEPS * 3);
+  const arcGeo       = new THREE.BufferGeometry();
+  arcGeo.setAttribute('position', new THREE.BufferAttribute(arcPositions, 3));
+  const arcLine = new THREE.Line(
+    arcGeo,
+    new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.8, linewidth: 2 })
+  );
+  arcLine.frustumCulled = false;
+  arcLine.visible = false;
+  scene.add(arcLine);
+
   const _tpRaycaster = new THREE.Raycaster();
   const _tempMatrix  = new THREE.Matrix4();
   const _camWP       = new THREE.Vector3();
 
+  /* Pre-allocated scratch vectors for arc computation — avoids per-frame GC */
+  const _arcV0 = new THREE.Vector3();
+  const _arcP  = new THREE.Vector3();
+  const _arcQ  = new THREE.Vector3();
+  const _arcSD = new THREE.Vector3();
+
   let _teleportTarget  = null;
   let _teleportAiming  = false;
+  let _snapCooldown    = false;
 
   /* ── Right trigger → attack ── */
   ctrl[0].addEventListener('selectstart', () => {
@@ -146,12 +168,66 @@
     });
   };
 
+  /* ── Parabolic teleport arc helper ── */
+  // Simulates a ballistic trajectory from the left controller, raycasts each
+  // segment against all registered floor meshes, and returns the first hit point.
+  // Updates arcLine geometry in place so the caller just needs to toggle visibility.
+  function _computeTeleportArc() {
+    ctrl[1].getWorldPosition(_arcP);
+    _tempMatrix.identity().extractRotation(ctrl[1].matrixWorld);
+    _arcV0.set(0, 0, -1).applyMatrix4(_tempMatrix).multiplyScalar(6);
+
+    const floors  = ANT.teleportFloors || (ANT.teleportFloor ? [ANT.teleportFloor] : []);
+    const DT      = 0.08;
+    const GRAVITY = 12;
+    let   hitPt   = null;
+    let   nPts    = 0;
+
+    for (let i = 0; i < ARC_STEPS - 1; i++) {
+      arcPositions[i * 3]     = _arcP.x;
+      arcPositions[i * 3 + 1] = _arcP.y;
+      arcPositions[i * 3 + 2] = _arcP.z;
+      nPts = i + 1;
+
+      _arcQ.set(
+        _arcP.x + _arcV0.x * DT,
+        _arcP.y + _arcV0.y * DT,
+        _arcP.z + _arcV0.z * DT
+      );
+      _arcSD.subVectors(_arcQ, _arcP);
+      const segLen = _arcSD.length();
+      if (segLen < 0.0001) break;
+      _arcSD.divideScalar(segLen);
+
+      _tpRaycaster.set(_arcP, _arcSD);
+      _tpRaycaster.far = segLen + 0.05;
+      const hits = _tpRaycaster.intersectObjects(floors, false);
+
+      if (hits.length > 0) {
+        hitPt = hits[0].point.clone();
+        arcPositions[nPts * 3]     = hitPt.x;
+        arcPositions[nPts * 3 + 1] = hitPt.y;
+        arcPositions[nPts * 3 + 2] = hitPt.z;
+        nPts++;
+        break;
+      }
+
+      _arcP.copy(_arcQ);
+      _arcV0.y -= GRAVITY * DT;
+      if (_arcP.y < -22) break;
+    }
+
+    arcGeo.setDrawRange(0, nPts);
+    arcGeo.attributes.position.needsUpdate = true;
+    return hitPt;
+  }
+
   /* ── Per-frame XR update — called from main loop ── */
   ANT.updateXR = function (dt) {
     const session = renderer.xr.getSession();
 
-    /* Teleport aiming + commit via left thumbstick */
     if (session) {
+      /* Left thumbstick — parabolic arc teleport aim + commit */
       session.inputSources.forEach(src => {
         if (!src.gamepad || src.handedness !== 'left') return;
 
@@ -162,39 +238,46 @@
 
         if (mag > 0.5) {
           _teleportAiming = true;
+          if (_leftRay) _leftRay.visible = false;
 
-          // Raycast from left controller toward the floor
-          _tempMatrix.identity().extractRotation(ctrl[1].matrixWorld);
-          _tpRaycaster.ray.origin.setFromMatrixPosition(ctrl[1].matrixWorld);
-          _tpRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(_tempMatrix);
-
-          const targets = ANT.teleportFloor ? [ANT.teleportFloor] : [];
-          const hits    = _tpRaycaster.intersectObjects(targets, false);
-
-          if (hits.length > 0) {
-            _teleportTarget = hits[0].point.clone();
-            reticle.position.set(_teleportTarget.x, _teleportTarget.y + 0.015, _teleportTarget.z);
+          _teleportTarget = _computeTeleportArc();
+          arcLine.visible = true;
+          if (_teleportTarget) {
+            reticle.position.set(_teleportTarget.x, _teleportTarget.y + 0.02, _teleportTarget.z);
             reticle.visible = true;
           } else {
             reticle.visible = false;
-            _teleportTarget = null;
           }
 
         } else if (_teleportAiming && mag < 0.25) {
           // Thumbstick returned to centre — execute teleport
           _teleportAiming = false;
           reticle.visible = false;
+          arcLine.visible = false;
+          if (_leftRay) _leftRay.visible = true;
 
           if (_teleportTarget) {
-            // Move dolly so player ends up at target (compensate for camera offset within dolly)
+            // Move dolly so player ends up at target (compensate for camera XZ offset within dolly)
             camera.getWorldPosition(_camWP);
             dolly.position.x += _teleportTarget.x - _camWP.x;
             dolly.position.z += _teleportTarget.z - _camWP.z;
-            // Y: keep dolly on floor level at target
-            dolly.position.y = _teleportTarget.y;
+            dolly.position.y  = _teleportTarget.y; // floor Y from raycast hit
             _teleportTarget = null;
           }
         }
+      });
+
+      /* Right thumbstick — snap rotation (30° per flick, debounced) */
+      session.inputSources.forEach(src => {
+        if (!src.gamepad || src.handedness !== 'right') return;
+        const axes   = src.gamepad.axes;
+        const stickX = axes[2] !== undefined ? axes[2] : (axes[0] || 0);
+
+        if (!_snapCooldown && Math.abs(stickX) > 0.6) {
+          dolly.rotation.y += stickX > 0 ? -Math.PI / 6 : Math.PI / 6;
+          _snapCooldown = true;
+        }
+        if (Math.abs(stickX) < 0.3) _snapCooldown = false;
       });
     }
 
@@ -246,6 +329,10 @@
 
           session.addEventListener('end', () => {
             vrBtn.textContent = '◈ ENTER VR';
+            arcLine.visible   = false;
+            reticle.visible   = false;
+            _teleportAiming   = false;
+            if (_leftRay) _leftRay.visible = true;
           });
         } catch (err) {
           console.warn('XR session failed:', err);

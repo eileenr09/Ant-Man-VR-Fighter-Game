@@ -100,6 +100,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Co
 
 /* Scan lines */
 #scan{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.04) 3px,rgba(0,0,0,0.04) 4px);pointer-events:none;opacity:0.6}
+
+/* VR button */
+#vr-btn{position:fixed;bottom:18px;right:16px;padding:9px 20px;font-family:'Courier New',monospace;font-size:12px;letter-spacing:2px;color:#e8c87a;background:rgba(0,0,0,0.8);border:1px solid rgba(200,120,30,0.6);cursor:pointer;z-index:20;transition:background .2s,border-color .2s}
+#vr-btn:hover{background:rgba(40,20,0,0.9);border-color:rgba(255,160,40,0.9)}
+#no-xr-msg{position:fixed;bottom:18px;right:16px;color:rgba(200,100,30,0.6);font-size:10px;letter-spacing:1px;display:none;z-index:20}
 </style>
 </head>
 <body>
@@ -126,6 +131,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Co
   <div id="inst">WASD · MOUSE LOOK · CLICK ATTACK · E PICKUP · 1-5 WEAPONS · F EAT FOOD · SPACE JUMP</div>
 </div>
 
+<button id="vr-btn">◈ ENTER VR</button>
+<div id="no-xr-msg"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 'use strict';
@@ -140,6 +147,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5));
 renderer.setSize(window.innerWidth,window.innerHeight);
 renderer.shadowMap.enabled = false;
 renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.xr.enabled = true;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x0d0500, 0.055);
@@ -287,10 +295,11 @@ function buildFloor(path){
   geo.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
   geo.setIndex(idxs);
   geo.computeVertexNormals();
-  const mat=new THREE.MeshLambertMaterial({color:0x1a0a03,side:THREE.FrontSide});
+  const mat=new THREE.MeshLambertMaterial({color:0x1a0a03,side:THREE.DoubleSide});
   return new THREE.Mesh(geo,mat);
 }
-scene.add(buildFloor(MAIN_PATH));
+const xrTeleportFloor = buildFloor(MAIN_PATH);
+scene.add(xrTeleportFloor);
 
 // ── LIGHTING SYSTEM ──────────────────────────────────────
 const lights=[];
@@ -809,6 +818,7 @@ const _move=new THREE.Vector3();
 // Pre-allocated vectors for ant AI — avoids GC pressure each frame
 const _antToP=new THREE.Vector3();
 const _queenToP=new THREE.Vector3();
+const _camWP=new THREE.Vector3();
 
 // ── INPUT ────────────────────────────────────────────────
 window.addEventListener('keydown',e=>{
@@ -1128,18 +1138,141 @@ const partMat=new THREE.PointsMaterial({color:0x8b5a2b,size:0.03,transparent:tru
 const particles=new THREE.Points(partGeo,partMat);
 scene.add(particles);
 
+// ── WebXR — dolly rig, controllers, teleportation ────────
+
+const xrDolly = new THREE.Group();
+scene.add(xrDolly);
+scene.remove(camera);
+xrDolly.add(camera); // dolly at origin so camera.local == camera.world in desktop mode
+
+const xrCtrl = [renderer.xr.getController(0), renderer.xr.getController(1)];
+xrCtrl.forEach(c => xrDolly.add(c));
+
+const _xrRayGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]);
+const _xrRayMat = new THREE.LineBasicMaterial({color:0x88ccff,transparent:true,opacity:0.45});
+let _xrLeftRay = null;
+xrCtrl.forEach((c,i)=>{
+  const line = new THREE.Line(_xrRayGeo.clone(),_xrRayMat.clone());
+  line.scale.z=4; c.add(line);
+  if(i===1) _xrLeftRay=line;
+});
+xrCtrl[0].addEventListener('selectstart',()=>{ if(!gameOver&&!gameWon) doAttack(); });
+
+const _xrReticleGeo = new THREE.RingGeometry(0.18,0.26,28);
+_xrReticleGeo.rotateX(-Math.PI/2);
+const _xrReticle = new THREE.Mesh(_xrReticleGeo,
+  new THREE.MeshBasicMaterial({color:0x00ccff,side:THREE.DoubleSide,transparent:true,opacity:0.78}));
+_xrReticle.visible=false; scene.add(_xrReticle);
+
+const _XR_ARC_N=30, _xrArcPos=new Float32Array(_XR_ARC_N*3);
+const _xrArcGeo=new THREE.BufferGeometry();
+_xrArcGeo.setAttribute('position',new THREE.BufferAttribute(_xrArcPos,3));
+const _xrArcLine=new THREE.Line(_xrArcGeo,
+  new THREE.LineBasicMaterial({color:0x00ccff,transparent:true,opacity:0.8}));
+_xrArcLine.frustumCulled=false; _xrArcLine.visible=false; scene.add(_xrArcLine);
+
+const _xrTmpMat=new THREE.Matrix4(), _xrTpRay=new THREE.Raycaster();
+const _xrCamWP=new THREE.Vector3(), _xrArcV0=new THREE.Vector3();
+const _xrArcP=new THREE.Vector3(), _xrArcQ=new THREE.Vector3(), _xrArcSD=new THREE.Vector3();
+let _xrTpTarget=null, _xrTpAiming=false, _xrSnapCd=false;
+
+function _xrComputeArc(){
+  xrCtrl[1].getWorldPosition(_xrArcP);
+  _xrTmpMat.identity().extractRotation(xrCtrl[1].matrixWorld);
+  _xrArcV0.set(0,0,-1).applyMatrix4(_xrTmpMat).multiplyScalar(6);
+  const DT=0.08,G=12; let hitPt=null,nPts=0;
+  for(let i=0;i<_XR_ARC_N-1;i++){
+    _xrArcPos[i*3]=_xrArcP.x; _xrArcPos[i*3+1]=_xrArcP.y; _xrArcPos[i*3+2]=_xrArcP.z;
+    nPts=i+1;
+    _xrArcQ.set(_xrArcP.x+_xrArcV0.x*DT, _xrArcP.y+_xrArcV0.y*DT, _xrArcP.z+_xrArcV0.z*DT);
+    _xrArcSD.subVectors(_xrArcQ,_xrArcP);
+    const segLen=_xrArcSD.length(); if(segLen<0.0001) break;
+    _xrArcSD.divideScalar(segLen);
+    _xrTpRay.set(_xrArcP,_xrArcSD); _xrTpRay.far=segLen+0.05;
+    const hits=_xrTpRay.intersectObject(xrTeleportFloor,false);
+    if(hits.length>0){
+      hitPt=hits[0].point.clone();
+      _xrArcPos[nPts*3]=hitPt.x; _xrArcPos[nPts*3+1]=hitPt.y; _xrArcPos[nPts*3+2]=hitPt.z;
+      nPts++; break;
+    }
+    _xrArcP.copy(_xrArcQ); _xrArcV0.y-=G*DT;
+    if(_xrArcP.y<-22) break;
+  }
+  _xrArcGeo.setDrawRange(0,nPts); _xrArcGeo.attributes.position.needsUpdate=true;
+  return hitPt;
+}
+
+function updateXR(){
+  const session=renderer.xr.getSession(); if(!session) return;
+  session.inputSources.forEach(src=>{
+    if(!src.gamepad||src.handedness!=='left') return;
+    const axes=src.gamepad.axes;
+    const sx=axes[2]!==undefined?axes[2]:(axes[0]||0);
+    const sy=axes[3]!==undefined?axes[3]:(axes[1]||0);
+    const mag=Math.sqrt(sx*sx+sy*sy);
+    if(mag>0.5){
+      _xrTpAiming=true; if(_xrLeftRay) _xrLeftRay.visible=false;
+      _xrTpTarget=_xrComputeArc(); _xrArcLine.visible=true;
+      if(_xrTpTarget){ _xrReticle.position.set(_xrTpTarget.x,_xrTpTarget.y+0.02,_xrTpTarget.z); _xrReticle.visible=true; }
+      else { _xrReticle.visible=false; }
+    } else if(_xrTpAiming&&mag<0.25){
+      _xrTpAiming=false; _xrReticle.visible=false; _xrArcLine.visible=false;
+      if(_xrLeftRay) _xrLeftRay.visible=true;
+      if(_xrTpTarget){
+        camera.getWorldPosition(_xrCamWP);
+        xrDolly.position.x+=_xrTpTarget.x-_xrCamWP.x;
+        xrDolly.position.z+=_xrTpTarget.z-_xrCamWP.z;
+        xrDolly.position.y=_xrTpTarget.y; _xrTpTarget=null;
+      }
+    }
+  });
+  session.inputSources.forEach(src=>{
+    if(!src.gamepad||src.handedness!=='right') return;
+    const sx=(src.gamepad.axes[2]!==undefined?src.gamepad.axes[2]:(src.gamepad.axes[0]||0));
+    if(!_xrSnapCd&&Math.abs(sx)>0.6){ xrDolly.rotation.y+=sx>0?-Math.PI/6:Math.PI/6; _xrSnapCd=true; }
+    if(Math.abs(sx)<0.3) _xrSnapCd=false;
+  });
+}
+
+// VR button
+(()=>{
+  const vrBtn=document.getElementById('vr-btn'), noXrMsg=document.getElementById('no-xr-msg');
+  if(navigator.xr){
+    navigator.xr.isSessionSupported('immersive-vr').then(ok=>{
+      if(!ok){ if(vrBtn) vrBtn.style.display='none'; if(noXrMsg) noXrMsg.style.display='block'; }
+    }).catch(()=>{ if(vrBtn) vrBtn.style.display='none'; if(noXrMsg) noXrMsg.style.display='block'; });
+    if(vrBtn) vrBtn.addEventListener('click',async()=>{
+      try{
+        const session=await navigator.xr.requestSession('immersive-vr',{
+          requiredFeatures:['local-floor'], optionalFeatures:['bounded-floor','hand-tracking']});
+        renderer.xr.setSession(session);
+        vrBtn.textContent='◈ EXIT VR';
+        session.addEventListener('end',()=>{
+          vrBtn.textContent='◈ ENTER VR';
+          _xrArcLine.visible=false; _xrReticle.visible=false; _xrTpAiming=false;
+          if(_xrLeftRay) _xrLeftRay.visible=true;
+        });
+      } catch(err){ console.warn('XR failed:',err); if(noXrMsg){noXrMsg.textContent='VR failed: '+err.message;noXrMsg.style.display='block';} }
+    });
+  } else {
+    if(vrBtn) vrBtn.style.display='none';
+    if(noXrMsg){ noXrMsg.textContent='Desktop mode — WebXR not supported'; noXrMsg.style.display='block'; }
+  }
+})();
+
 // ── MAIN LOOP ────────────────────────────────────────────
 let lastZone='';
 
 function animate(){
-  requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05);
   const t=clock.elapsedTime;
+  const inXR=renderer.xr&&renderer.xr.isPresenting;
+  camera.getWorldPosition(_camWP);
 
   if(!gameOver&&!gameWon){
-
-    // ── Player movement ──
     attackCd=Math.max(0,attackCd-dt);
+    if(!inXR){
+    // ── Player movement ──
     _move.set(0,0,0);
     if(keys['KeyW']||keys['ArrowUp'])   _move.z-=1;
     if(keys['KeyS']||keys['ArrowDown']) _move.z+=1;
@@ -1159,10 +1292,11 @@ function animate(){
 
     camera.position.x=Math.max(-5,Math.min(5,camera.position.x));
     camera.position.z=Math.max(-65,Math.min(12,camera.position.z));
+    } // end !inXR
 
     // ── Zone detection ──
-    const py=camera.position.y;
-    const pz=camera.position.z;
+    const py=_camWP.y;
+    const pz=_camWP.z;
     let zone='SURFACE';
     if(pz<-4)zone='UPPER TUNNELS';
     if(py<-3)zone='MID TUNNELS';
@@ -1338,6 +1472,7 @@ function animate(){
     });
   }
 
+  if(inXR) updateXR();
   renderer.render(scene,camera);
 }
 
@@ -1352,7 +1487,7 @@ showMsg(
   'You start armed. Find green orbs for food.\nDescend to the Queen\'s Chamber.\nDestroy her.',
   6000
 );
-animate();
+renderer.setAnimationLoop(animate);
 </script>
 </body>
 </html>

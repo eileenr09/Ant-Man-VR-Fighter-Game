@@ -80,7 +80,8 @@
   /* ─────────────── Surface ─────────────── */
 
   // Ground plane — also used as XR teleportation raycast target
-  ANT.teleportFloor = box(80, 0.4, 80, MAT.floor, 0, -0.2, 0);
+  ANT.teleportFloor  = box(80, 0.4, 80, MAT.floor, 0, -0.2, 0);
+  ANT.teleportFloors = [ANT.teleportFloor]; // all walkable floors registered for VR teleport
 
   // Boulders / cover objects
   const boulderData = [
@@ -116,8 +117,8 @@
       const sy = -i * 2.2;
       const sz = z - i * 2.6 - 1.6;
 
-      // Floor slab
-      box(3, 0.3, 3, MAT.darkDirt, x, sy - 0.15, sz);
+      // Floor slab — registered for VR teleportation
+      ANT.teleportFloors.push(box(3, 0.3, 3, MAT.darkDirt, x, sy - 0.15, sz));
       // Ceiling slab
       box(3, 0.3, 3, MAT.darkDirt, x, sy + 2.05, sz);
       // Left wall
@@ -142,7 +143,7 @@
   ANT.QUEEN_CHAMBER = QC;
 
   // Floor + ceiling
-  box(14, 0.3, 14, MAT.darkDirt, QC.x, QC.y - 0.15, QC.z);
+  ANT.teleportFloors.push(box(14, 0.3, 14, MAT.darkDirt, QC.x, QC.y - 0.15, QC.z));
   box(14, 0.3, 14, MAT.darkDirt, QC.x, QC.y + 4.15, QC.z);
 
   // Four walls
