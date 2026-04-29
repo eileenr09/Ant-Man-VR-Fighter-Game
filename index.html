@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ANT COLONY: DESCENT</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+#c{display:block;width:100vw;height:100vh}
+#overlay{position:fixed;inset:0;pointer-events:none;z-index:10}
+
+/* Vignette */
+#vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,0.7) 100%);pointer-events:none}
+
+/* Damage flash */
+#dmg{position:absolute;inset:0;background:rgba(200,30,0,0);transition:background 0.05s;pointer-events:none}
+
+/* Crosshair */
+#xh{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:24px;height:24px}
+#xh::before,#xh::after{content:'';position:absolute;background:rgba(255,200,80,0.9)}
+#xh::before{width:2px;height:24px;left:11px;top:0}
+#xh::after{width:24px;height:2px;top:11px;left:0}
+#xh-dot{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:4px;border-radius:50%;background:rgba(255,200,80,0.9)}
+
+/* Stats panel */
+#stats{position:absolute;top:16px;left:16px;color:#e8c87a;font-size:12px;letter-spacing:1px;line-height:1.9;text-shadow:0 0 8px rgba(220,120,0,0.8)}
+#stats .lbl{color:rgba(200,150,60,0.6);font-size:10px}
+
+/* HP bar */
+#hpbar{position:absolute;top:16px;right:16px;width:180px}
+#hpbar .label{color:rgba(200,150,60,0.7);font-size:10px;letter-spacing:2px;margin-bottom:5px;text-align:right}
+#hpbar-track{height:8px;background:rgba(0,0,0,0.6);border:1px solid rgba(200,120,30,0.4);border-radius:1px;overflow:hidden}
+#hpbar-fill{height:100%;width:100%;background:linear-gradient(90deg,#8b2,#bf4);transition:width .15s,background .3s;border-radius:1px}
+
+/* Queen bar */
+#qbar-wrap{position:absolute;top:46px;right:16px;width:180px;display:none}
+#qbar-wrap .label{color:rgba(255,60,60,0.8);font-size:10px;letter-spacing:2px;margin-bottom:5px;text-align:right}
+#qbar-track{height:8px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,60,60,0.5);border-radius:1px;overflow:hidden}
+#qbar-fill{height:100%;width:100%;background:linear-gradient(90deg,#800,#f44);transition:width .15s;border-radius:1px}
+
+/* Weapon slot (hidden - replaced by hotbar) */
+#wslot{display:none}
+
+/* ── Fortnite-style hotbar ── */
+#hotbar{
+  position:absolute;
+  bottom:18px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:6px;
+  align-items:flex-end;
+  pointer-events:none;
+}
+.hslot{
+  width:64px;height:72px;
+  background:rgba(0,0,0,0.55);
+  border:2px solid rgba(200,150,50,0.3);
+  border-radius:4px;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  position:relative;
+  transition:transform 0.1s, border-color 0.1s, background 0.1s;
+  color:#e8c87a;
+}
+.hslot .slot-icon{font-size:26px;line-height:1;filter:drop-shadow(0 0 4px rgba(255,180,0,0.5))}
+.hslot .slot-name{font-size:7px;letter-spacing:1px;color:rgba(220,160,60,0.7);margin-top:2px;text-align:center;max-width:58px;overflow:hidden;white-space:nowrap}
+.hslot .slot-ammo{font-size:8px;color:rgba(255,220,100,0.6);margin-top:1px}
+.hslot .slot-key{
+  position:absolute;bottom:3px;right:5px;
+  font-size:8px;color:rgba(200,150,60,0.5);letter-spacing:0;
+}
+.hslot.active{
+  background:rgba(40,25,0,0.85);
+  border-color:rgba(255,180,40,0.9);
+  transform:translateY(-6px) scale(1.08);
+  box-shadow:0 0 14px rgba(255,160,0,0.5);
+}
+.hslot.active .slot-key{color:rgba(255,200,80,0.9)}
+.hslot.empty{opacity:0.3}
+
+/* Zone flash */
+#zone-flash{position:absolute;bottom:100px;left:50%;transform:translateX(-50%);color:#e8c87a;font-size:13px;letter-spacing:4px;text-shadow:0 0 12px rgba(255,160,0,0.9);opacity:0;transition:opacity .4s;white-space:nowrap}
+
+/* Kill feed */
+#kfeed{position:absolute;bottom:28px;left:16px;color:rgba(255,120,60,0.85);font-size:11px;letter-spacing:1px;text-shadow:0 0 6px rgba(255,60,0,0.6);line-height:1.8}
+
+/* Center message */
+#msg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#e8c87a;font-size:16px;text-align:center;line-height:1.8;letter-spacing:1px;background:rgba(0,0,0,0.85);padding:28px 44px;border:1px solid rgba(200,120,30,0.35);display:none;max-width:500px;text-shadow:0 0 10px rgba(255,160,0,0.4)}
+
+/* Pickup prompt */
+#pickup-hint{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);color:rgba(100,255,180,0.9);font-size:11px;letter-spacing:3px;text-shadow:0 0 10px rgba(0,255,120,0.6);opacity:0;transition:opacity .2s}
+
+/* Instructions */
+#inst{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);color:rgba(200,150,60,0.35);font-size:10px;letter-spacing:1px;white-space:nowrap}
+
+/* Breathing overlay for atmosphere */
+#breath{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(20,5,0,0.15) 100%);animation:breathe 4s ease-in-out infinite;pointer-events:none}
+@keyframes breathe{0%,100%{opacity:0.4}50%{opacity:1}}
+
+/* Scan lines */
+#scan{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.04) 3px,rgba(0,0,0,0.04) 4px);pointer-events:none;opacity:0.6}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay">
+  <div id="vig"></div>
+  <div id="breath"></div>
+  <div id="scan"></div>
+  <div id="dmg"></div>
+  <div id="xh"><div id="xh-dot"></div></div>
+  <div id="stats">
+    <div><span class="lbl">HEALTH  </span><span id="s-hp">100</span></div>
+    <div><span class="lbl">KILLS   </span><span id="s-kills">0</span></div>
+    <div><span class="lbl">DEPTH   </span><span id="s-depth">SURFACE</span></div>
+  </div>
+  <div id="hpbar"><div class="label">VITALS</div><div id="hpbar-track"><div id="hpbar-fill"></div></div></div>
+  <div id="qbar-wrap"><div class="label">QUEEN</div><div id="qbar-track"><div id="qbar-fill"></div></div></div>
+  <div id="wslot"><div class="icon" id="w-icon">⚠</div><div class="wname" id="w-name">UNARMED</div><div class="ammo-count" id="w-ammo"></div></div>
+  <div id="hotbar"></div>
+  <div id="zone-flash"></div>
+  <div id="kfeed"></div>
+  <div id="msg"></div>
+  <div id="pickup-hint">[ E ] PICK UP WEAPON</div>
+  <div id="inst">WASD · MOUSE LOOK · CLICK ATTACK · E PICKUP · 1-5 WEAPONS · F EAT FOOD · SPACE JUMP</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+// ════════════════════════════════════════════════════════
+//  ANT COLONY: DESCENT  —  High-Performance Rewrite
+// ════════════════════════════════════════════════════════
+
+// ── Renderer ────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:false, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5));
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.shadowMap.enabled = false;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0d0500, 0.055);
+scene.background = new THREE.Color(0x0d0500);
+
+const camera = new THREE.PerspectiveCamera(80,innerWidth/innerHeight,0.05,80);
+camera.position.set(0,1.6,8);
+
+window.addEventListener('resize',()=>{
+  renderer.setSize(innerWidth,innerHeight);
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// ── Shared clock ────────────────────────────────────────
+const clock = new THREE.Clock();
+
+// ── DOM cache — avoid getElementById every frame ─────────
+const E={
+  hp:document.getElementById('s-hp'),
+  kills:document.getElementById('s-kills'),
+  depth:document.getElementById('s-depth'),
+  hpFill:document.getElementById('hpbar-fill'),
+  qFill:document.getElementById('qbar-fill'),
+  qWrap:document.getElementById('qbar-wrap'),
+  wIcon:document.getElementById('w-icon'),
+  wName:document.getElementById('w-name'),
+  wAmmo:document.getElementById('w-ammo'),
+  zFlash:document.getElementById('zone-flash'),
+  kfeed:document.getElementById('kfeed'),
+  msg:document.getElementById('msg'),
+  hint:document.getElementById('pickup-hint'),
+  xh:document.getElementById('xh'),
+  dmg:document.getElementById('dmg'),
+};
+
+// ── GEOMETRY HELPERS ────────────────────────────────────
+function rnd(a,b){return a+(b-a)*Math.random();}
+function lerp(a,b,t){return a+(b-a)*t;}
+
+// ── ORGANIC TUNNEL BUILDER ──────────────────────────────
+function buildTunnel(path, radius, radialSegs, tubularSegs, roughness){
+  const curve = new THREE.CatmullRomCurve3(path);
+  const positions=[], normals=[], colors=[], indices=[];
+  const frames = curve.computeFrenetFrames(tubularSegs, false);
+  const N=radialSegs, M=tubularSegs;
+
+  for(let i=0;i<=M;i++){
+    const t=i/M;
+    const pt = curve.getPoint(t);
+    const norm = frames.normals[Math.min(i,frames.normals.length-1)];
+    const binorm = frames.binormals[Math.min(i,frames.binormals.length-1)];
+    const depthFactor = 0.5+0.5*t;
+
+    for(let j=0;j<=N;j++){
+      const ang = (j/N)*Math.PI*2;
+      const nx = Math.cos(ang), ny = Math.sin(ang);
+      const bump = roughness*(
+        Math.sin(ang*3+i*0.7)*0.3+
+        Math.sin(ang*2-i*1.1)*0.25+
+        Math.cos(ang*5+i*0.3)*0.15
+      );
+      const r = radius+bump;
+
+      const dx = nx*norm.x + ny*binorm.x;
+      const dy = nx*norm.y + ny*binorm.y;
+      const dz = nx*norm.z + ny*binorm.z;
+
+      positions.push(pt.x+dx*r, pt.y+dy*r, pt.z+dz*r);
+      normals.push(-dx,-dy,-dz);
+
+      const grime = 0.55+0.2*Math.sin(ang*4+i*1.3+Math.random()*0.1);
+      const cr = lerp(0.28,0.18,depthFactor)*grime;
+      const cg = lerp(0.16,0.08,depthFactor)*grime;
+      const cb = lerp(0.06,0.02,depthFactor)*grime;
+      colors.push(cr,cg,cb);
+    }
+  }
+
+  for(let i=0;i<M;i++){
+    for(let j=0;j<N;j++){
+      const a=(N+1)*i+j, b=a+N+1;
+      indices.push(a,b,a+1, b,b+1,a+1);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geo.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+  geo.setIndex(indices);
+
+  const mat = new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.BackSide});
+  const mesh = new THREE.Mesh(geo,mat);
+  mesh.receiveShadow=false;
+  return mesh;
+}
+
+// ── WORLD LAYOUT ────────────────────────────────────────
+const MAIN_PATH = [
+  new THREE.Vector3(0,1.6,10),
+  new THREE.Vector3(2,0.5,2),
+  new THREE.Vector3(-1,-1,-4),
+  new THREE.Vector3(3,-4,-12),
+  new THREE.Vector3(-2,-5,-18),
+  new THREE.Vector3(1,-8,-26),
+  new THREE.Vector3(-3,-10,-32),
+  new THREE.Vector3(2,-13,-40),
+  new THREE.Vector3(-1,-14,-48),
+  new THREE.Vector3(0,-16,-55),
+  new THREE.Vector3(0,-16,-62),
+];
+
+const mainTunnel = buildTunnel(MAIN_PATH, 3.2, 14, 100, 0.55);
+scene.add(mainTunnel);
+
+const BRANCH_PATHS = [
+  [new THREE.Vector3(3,-2,-8), new THREE.Vector3(6,-3,-10), new THREE.Vector3(8,-2,-14), new THREE.Vector3(10,-4,-16)],
+  [new THREE.Vector3(-3,-4,-14), new THREE.Vector3(-7,-5,-16), new THREE.Vector3(-9,-4,-20)],
+  [new THREE.Vector3(2,-8,-28), new THREE.Vector3(5,-9,-30), new THREE.Vector3(7,-8,-34)],
+  [new THREE.Vector3(-2,-10,-34), new THREE.Vector3(-5,-12,-36), new THREE.Vector3(-6,-11,-40)],
+];
+BRANCH_PATHS.forEach(pts=>{
+  scene.add(buildTunnel(pts,2.0,10,20,0.6));
+});
+
+// ── FLOOR MESH ───────────────────────────────────────────
+function buildFloor(path){
+  const curve = new THREE.CatmullRomCurve3(path);
+  const pts=[], idxs=[];
+  const W=2.6, segs=80;
+  for(let i=0;i<=segs;i++){
+    const t=i/segs;
+    const p=curve.getPoint(t);
+    const tangent=curve.getTangent(t);
+    const right=new THREE.Vector3().crossVectors(tangent,new THREE.Vector3(0,1,0)).normalize();
+    pts.push(p.x-right.x*W,p.y-1.35,p.z-right.z*W);
+    pts.push(p.x+right.x*W,p.y-1.35,p.z+right.z*W);
+  }
+  for(let i=0;i<segs;i++){
+    const a=i*2,b=a+2;
+    idxs.push(a,b,a+1,b,b+1,a+1);
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
+  geo.setIndex(idxs);
+  geo.computeVertexNormals();
+  const mat=new THREE.MeshLambertMaterial({color:0x1a0a03,side:THREE.FrontSide});
+  return new THREE.Mesh(geo,mat);
+}
+scene.add(buildFloor(MAIN_PATH));
+
+// ── LIGHTING SYSTEM ──────────────────────────────────────
+const lights=[];
+function addLight(x,y,z,color,intensity,dist){
+  const l=new THREE.PointLight(color,intensity,dist);
+  l.position.set(x,y,z);
+  scene.add(l);
+  lights.push(l);
+  return l;
+}
+
+scene.add(new THREE.AmbientLight(0x1a0800, 0.4));
+
+const lightData=[
+  [0,1,8, 0xcc6622,0.9,12],
+  [0,-0.5,-4, 0x995511,0.7,10],
+  [1,-3,-12, 0x774422,1.0,14],
+  [-1,-5,-18, 0x883300,0.8,10],
+  [0,-8,-26, 0x662200,1.2,16],
+  [2,-8,-26, 0x00aa44,0.6,8],
+  [-2,-8,-26,0x00aa44,0.6,8],
+  [0,-12,-38, 0x551100,1.0,14],
+  [0,-14,-48, 0x880022,1.5,18],
+  [0,-16,-58, 0xff0033,2.0,20],
+  [3,-16,-58, 0xff1100,1.0,12],
+  [-3,-16,-58,0xff1100,1.0,12],
+];
+lightData.forEach(d=>addLight(...d));
+
+const queenPulse = addLight(0,-16,-62,0xff0022,3.0,25);
+
+// ── DECORATIVE ELEMENTS ──────────────────────────────────
+function addMushroom(x,y,z,scale,glowColor){
+  const g=new THREE.Group();
+  const stemGeo=new THREE.CylinderGeometry(0.04*scale,0.06*scale,0.25*scale,6);
+  const capGeo=new THREE.SphereGeometry(0.16*scale,8,5);
+  capGeo.scale(1,0.55,1);
+  const glowMat=new THREE.MeshBasicMaterial({color:glowColor});
+  const stemMat=new THREE.MeshLambertMaterial({color:0x8b6030});
+  const stem=new THREE.Mesh(stemGeo,stemMat);
+  stem.position.set(0,0.125*scale,0);
+  g.add(stem);
+  const cap=new THREE.Mesh(capGeo,glowMat);
+  cap.position.y=0.27*scale;
+  g.add(cap);
+  const ml=new THREE.PointLight(glowColor,0.4,3*scale);
+  ml.position.y=0.3*scale;
+  g.add(ml);
+  g.position.set(x,y,z);
+  scene.add(g);
+  return g;
+}
+
+const mushroomColors=[0x00ff88,0x88ff00,0x00ffcc,0x44ff44];
+const mushroomPositions=[
+  [2.5,0,-2,0.9],[-2.8,0.2,-6,0.7],[-2.5,-2,-10,1.1],[2.8,-3,-14,0.8],
+  [2.5,-5,-20,1.2],[-2.8,-5,-22,0.9],[2.5,-8,-28,1.0],[-2.5,-9,-30,0.8],
+  [2.5,-12,-36,1.1],[-2.5,-13,-40,0.9],
+];
+mushroomPositions.forEach(([x,y,z,s])=>addMushroom(x,y,z,s,mushroomColors[Math.floor(Math.random()*mushroomColors.length)]));
+
+function addRoots(x,y,z,count){
+  for(let i=0;i<count;i++){
+    const len=rnd(0.3,1.1);
+    const pts=[new THREE.Vector3(x+rnd(-0.5,0.5),y,z+rnd(-0.5,0.5))];
+    let cx=pts[0].x,cy=pts[0].y,cz=pts[0].z;
+    for(let j=0;j<3;j++){cx+=rnd(-0.1,0.1);cy-=len/3;cz+=rnd(-0.1,0.1);pts.push(new THREE.Vector3(cx,cy,cz));}
+    const curve=new THREE.CatmullRomCurve3(pts);
+    const geo=new THREE.TubeGeometry(curve,6,0.012,4,false);
+    const mesh=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({color:0x3a1a06}));
+    scene.add(mesh);
+  }
+}
+[[0,2.8,-3,8],[1,1.2,-8,6],[-1,-0.8,-14,7],[0,-2,-20,5],[0,-6,-28,6],
+ [0,-11,-36,5],[0,-14,-44,6]].forEach(([x,y,z,n])=>addRoots(x,y,z,n));
+
+function addEggCluster(cx,cy,cz){
+  for(let i=0;i<14;i++){
+    const angle=rnd(0,Math.PI*2), r=rnd(0.5,2.5);
+    const geo=new THREE.SphereGeometry(rnd(0.15,0.28),6,5);
+    geo.scale(1,1.35,1);
+    const mat=new THREE.MeshLambertMaterial({color:0xfff0d0,transparent:true,opacity:0.88});
+    const m=new THREE.Mesh(geo,mat);
+    m.position.set(cx+Math.cos(angle)*r, cy+rnd(0,0.2), cz+Math.sin(angle)*r);
+    scene.add(m);
+  }
+}
+addEggCluster(0,-16.8,-60);
+addEggCluster(3,-16.8,-58);
+addEggCluster(-3,-16.8,-62);
+
+for(let i=0;i<60;i++){
+  const t=Math.random();
+  const pt=new THREE.CatmullRomCurve3(MAIN_PATH).getPoint(t);
+  const r=rnd(0.04,0.15);
+  const geo=new THREE.SphereGeometry(r,4,3);
+  const mat=new THREE.MeshLambertMaterial({color:new THREE.Color(rnd(0.12,0.22),rnd(0.06,0.1),rnd(0.01,0.04))});
+  const m=new THREE.Mesh(geo,mat);
+  m.position.set(pt.x+rnd(-1.5,1.5), pt.y-1.3+r, pt.z+rnd(-1,1));
+  m.scale.set(rnd(0.7,1.4),rnd(0.4,0.9),rnd(0.7,1.4));
+  scene.add(m);
+}
+
+// ── WEAPONS ──────────────────────────────────────────────
+const WEAPONS=[
+  {name:'MAGNIFYING GLASS',icon:'🔍',dmg:18,range:4,ammo:-1,cd:0.5,desc:'Focused heat beam'},
+  {name:'BUG SPRAY',       icon:'💨',dmg:9, range:7,ammo:35,cd:0.15,desc:'Chemical aerosol'},
+  {name:'STEEL BOOT',      icon:'👢',dmg:32,range:2,ammo:-1,cd:0.9, desc:'Maximum stomping'},
+  {name:'FLAMETHROWER',    icon:'🔥',dmg:14,range:5,ammo:25,cd:0.12,desc:'Incendiary burst'},
+  {name:'TWEEZERS',        icon:'🩺',dmg:48,range:2,ammo:-1,cd:1.1, desc:'Surgical precision'},
+  {name:'ANT ACID',        icon:'⚗️', dmg:22,range:5,ammo:18,cd:0.25,desc:'Corrosive spray'},
+];
+
+const pickups=[];
+const mainCurve=new THREE.CatmullRomCurve3(MAIN_PATH);
+
+function spawnWeapon(t,wIdx){
+  const pt=mainCurve.getPoint(t);
+  const w=WEAPONS[wIdx];
+  const geo=new THREE.SphereGeometry(0.18,8,7);
+  const mat=new THREE.MeshBasicMaterial({color:0xffcc44});
+  const orb=new THREE.Mesh(geo,mat);
+  orb.position.set(pt.x+rnd(-1,1), pt.y-0.8, pt.z+rnd(-0.5,0.5));
+  scene.add(orb);
+  const ringGeo=new THREE.TorusGeometry(0.28,0.03,6,20);
+  const ringMat=new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.7});
+  const ring=new THREE.Mesh(ringGeo,ringMat);
+  ring.position.copy(orb.position);
+  scene.add(ring);
+  const pl=new THREE.PointLight(0xffaa00,1.2,3.5);
+  pl.position.copy(orb.position);
+  scene.add(pl);
+  pickups.push({weapon:w,orb,ring,pl,pos:orb.position.clone(),active:true,t});
+}
+
+spawnWeapon(0.05,0);
+spawnWeapon(0.1, 1);
+spawnWeapon(0.18,2);
+spawnWeapon(0.28,3);
+spawnWeapon(0.42,4);
+spawnWeapon(0.55,5);
+spawnWeapon(0.7, 1);
+spawnWeapon(0.8, 3);
+
+// ── FLOOR HEIGHT — precomputed for fast lookup ───────────
+// Bakes mainCurve samples so getFloorY never calls getPoint() at runtime
+const _FLT_N=120;
+const _fltPX=new Float32Array(_FLT_N+1);
+const _fltPY=new Float32Array(_FLT_N+1);
+const _fltPZ=new Float32Array(_FLT_N+1);
+(()=>{
+  for(let i=0;i<=_FLT_N;i++){
+    const p=mainCurve.getPoint(i/_FLT_N);
+    _fltPX[i]=p.x;_fltPY[i]=p.y;_fltPZ[i]=p.z;
+  }
+})();
+
+function getFloorY(px,pz){
+  let bestIdx=0,bestDist=1e9;
+  for(let i=0;i<=_FLT_N;i++){
+    const dx=px-_fltPX[i],dz=pz-_fltPZ[i];
+    const d=dx*dx+dz*dz;
+    if(d<bestDist){bestDist=d;bestIdx=i;}
+  }
+  return _fltPY[bestIdx]-1.2;
+}
+
+// ── ANT INSTANCED MESH ───────────────────────────────────
+const MAX_ANTS=40;
+const antGeo=(()=>{
+  const geo=new THREE.BufferGeometry();
+  const verts=[], norms=[], cols=[];
+  const idxs=[];
+  let offset=0;
+
+  function addSphere(cx,cy,cz,r,R,G,B){
+    const segs=6, rings=5;
+    const base=offset;
+    for(let iy=0;iy<=rings;iy++){
+      const v=iy/rings, phi=v*Math.PI;
+      for(let ix=0;ix<=segs;ix++){
+        const u=ix/segs, theta=u*Math.PI*2;
+        const x=cx+r*Math.sin(phi)*Math.cos(theta);
+        const y=cy+r*Math.cos(phi);
+        const z=cz+r*Math.sin(phi)*Math.sin(theta);
+        verts.push(x,y,z);
+        norms.push(Math.sin(phi)*Math.cos(theta),Math.cos(phi),Math.sin(phi)*Math.sin(theta));
+        cols.push(R,G,B);
+        offset++;
+      }
+    }
+    for(let iy=0;iy<rings;iy++){
+      for(let ix=0;ix<segs;ix++){
+        const a=base+(segs+1)*iy+ix;
+        const b=a+(segs+1);
+        idxs.push(a,b,a+1,b,b+1,a+1);
+      }
+    }
+  }
+
+  function addCylinder(x1,y1,z1,x2,y2,z2,r,R,G,B){
+    const segs=4,base=offset;
+    const dx=x2-x1,dy=y2-y1,dz=z2-z1;
+    const len=Math.sqrt(dx*dx+dy*dy+dz*dz);
+    const ux=dx/len,uy=dy/len,uz=dz/len;
+    let rx,ry,rz;
+    if(Math.abs(uy)<0.9){rx=0;ry=1;rz=0;}else{rx=1;ry=0;rz=0;}
+    const bx=uy*rz-uz*ry, by=uz*rx-ux*rz, bz=ux*ry-uy*rx;
+    const blen=Math.sqrt(bx*bx+by*by+bz*bz);
+    const _bx=bx/blen,_by=by/blen,_bz=bz/blen;
+    const _rx=uy*_bz-uz*_by,_ry=uz*_bx-ux*_bz,_rz=ux*_by-uy*_bx;
+    for(let cap=0;cap<2;cap++){
+      const px=cap?x2:x1,py=cap?y2:y1,pz=cap?z2:z1;
+      for(let i=0;i<=segs;i++){
+        const a=i/segs*Math.PI*2;
+        const nx=Math.cos(a)*_rx+Math.sin(a)*_bx;
+        const ny=Math.cos(a)*_ry+Math.sin(a)*_by;
+        const nz=Math.cos(a)*_rz+Math.sin(a)*_bz;
+        verts.push(px+nx*r,py+ny*r,pz+nz*r);
+        norms.push(nx,ny,nz);
+        cols.push(R,G,B);
+        offset++;
+      }
+    }
+    for(let i=0;i<segs;i++){
+      const a=base+i, b=base+(segs+1)+i;
+      idxs.push(a,b,a+1,b,b+1,a+1);
+    }
+  }
+
+  addSphere(0,0,0.18,  0.095, 0.12,0.06,0.01);
+  addSphere(0,0,0.0,   0.075, 0.10,0.05,0.01);
+  addSphere(0,0,-0.24, 0.135, 0.14,0.07,0.01);
+
+  const legPairs=[[0.08,0],[0,0],[-0.1,0]];
+  legPairs.forEach(([lz])=>{
+    [-1,1].forEach(s=>{
+      addCylinder(0.06*s,0,lz,0.22*s,-0.12,lz-0.04,0.018,0.1,0.05,0.01);
+    });
+  });
+
+  addCylinder(0.04,0.06,0.22,  0.09,0.16,0.3,  0.01,0.1,0.05,0.01);
+  addCylinder(-0.04,0.06,0.22,-0.09,0.16,0.3,  0.01,0.1,0.05,0.01);
+
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  geo.setAttribute('normal',new THREE.Float32BufferAttribute(norms,3));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(cols,3));
+  geo.setIndex(idxs);
+  return geo;
+})();
+
+const antMat = new THREE.MeshLambertMaterial({vertexColors:true});
+const antInstanced = new THREE.InstancedMesh(antGeo, antMat, MAX_ANTS);
+antInstanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+antInstanced.count=0;
+scene.add(antInstanced);
+
+// Queen: unique large mesh
+const queenMesh=(()=>{
+  const g=new THREE.Group();
+  const qMat=new THREE.MeshLambertMaterial({color:0x660011});
+  const qGlowMat=new THREE.MeshBasicMaterial({color:0xff0033,transparent:true,opacity:0.15});
+  [[0,0,0.55,0.28],[0,0.05,0.18,0.22],[0,0,-0.55,0.42]].forEach(([x,y,z,r])=>{
+    const m=new THREE.Mesh(new THREE.SphereGeometry(r,12,9),qMat);
+    m.position.set(x,y,z);
+    g.add(m);
+  });
+  const crown=new THREE.Mesh(new THREE.ConeGeometry(0.2,0.35,6),new THREE.MeshBasicMaterial({color:0xffdd00}));
+  crown.position.set(0,0.45,0.55);
+  g.add(crown);
+  for(let s of[-1,1]){
+    const w=new THREE.Mesh(new THREE.PlaneGeometry(1.1,0.5),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.25,side:THREE.DoubleSide}));
+    w.position.set(s*0.8,0.2,0);w.rotation.z=s*0.4;g.add(w);
+  }
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.8,8,7),qGlowMat));
+  const qlMat=new THREE.MeshLambertMaterial({color:0x550010});
+  for(let i=0;i<3;i++)for(let s of[-1,1]){
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.7,4),qlMat);
+    leg.position.set(s*0.5,-0.1,0.2-i*0.35);leg.rotation.z=s*0.6;g.add(leg);
+  }
+  g.position.set(0,-16.3,-62);
+  g.scale.setScalar(1.8);
+  scene.add(g);
+  return g;
+})();
+
+const qHpCanvas=document.createElement('canvas');
+qHpCanvas.width=128;qHpCanvas.height=18;
+const qHpCtx=qHpCanvas.getContext('2d');
+const qHpTex=new THREE.CanvasTexture(qHpCanvas);
+const qHpSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:qHpTex,depthTest:false}));
+qHpSprite.scale.set(2.5,0.32,1);
+qHpSprite.position.set(0,2.2,0);
+queenMesh.add(qHpSprite);
+
+function drawQueenBar(pct){
+  qHpCtx.clearRect(0,0,128,18);
+  qHpCtx.fillStyle='#300';qHpCtx.fillRect(0,0,128,18);
+  qHpCtx.fillStyle='#f22';qHpCtx.fillRect(2,2,Math.max(0,(128-4)*pct),14);
+  qHpTex.needsUpdate=true;
+}
+drawQueenBar(1);
+
+// ── ANT OBJECTS ──────────────────────────────────────────
+const dummy = new THREE.Object3D();
+const antObjs=[];
+
+function spawnAnt(x,y,z){
+  const idx=antInstanced.count;
+  if(idx>=MAX_ANTS)return null;
+  antInstanced.count++;
+
+  const hpC=document.createElement('canvas');
+  hpC.width=64;hpC.height=10;
+  const hpCtx=hpC.getContext('2d');
+  const hpTex=new THREE.CanvasTexture(hpC);
+  const hpSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:hpTex,depthTest:false}));
+  hpSprite.scale.set(3.5,0.45,1);
+  hpSprite.position.set(0,2.2,0);
+
+  const hpGroup=new THREE.Group();
+  hpGroup.add(hpSprite);
+  hpGroup.position.set(x,y,z);
+  scene.add(hpGroup);
+
+  function drawBar(pct){
+    hpCtx.clearRect(0,0,64,10);
+    hpCtx.fillStyle='#200';hpCtx.fillRect(0,0,64,10);
+    hpCtx.fillStyle=pct>0.5?'#4f4':pct>0.25?'#ff4':'#f44';
+    hpCtx.fillRect(1,1,Math.max(0,62*pct),8);
+    hpTex.needsUpdate=true;
+  }
+  drawBar(1);
+
+  const a={
+    idx, hpGroup, drawBar,
+    pos:new THREE.Vector3(x,y,z),
+    maxHp:15, hp:15,
+    speed:rnd(1.8,2.8),
+    dmg:6, attackCd:0,
+    bobT:rnd(0,6.28),
+    alive:true,
+    isQueen:false,
+  };
+  antObjs.push(a);
+
+  dummy.position.set(x,y,z);
+  dummy.rotation.set(0,0,0);
+  dummy.scale.setScalar(4.5);
+  dummy.updateMatrix();
+  antInstanced.setMatrixAt(idx,dummy.matrix);
+  antInstanced.instanceMatrix.needsUpdate=true;
+  return a;
+}
+
+for(let i=0;i<8;i++){
+  const t=rnd(0.01,0.88);
+  const pt=mainCurve.getPoint(t);
+  spawnAnt(pt.x+rnd(-1.5,1.5), pt.y-0.5, pt.z+rnd(-0.8,0.8));
+}
+
+const queenObj={
+  pos:new THREE.Vector3(0,-16.3,-62),
+  maxHp:300, hp:300,
+  speed:1.5, dmg:15, attackCd:0,
+  bobT:0, alive:true, isQueen:true,
+};
+
+// ── PLAYER ───────────────────────────────────────────────
+let playerHp=100, kills=0, gameOver=false, gameWon=false;
+let curWeapon=null, ammo=0, attackCd=0;
+
+// ── WEAPON HAND MODEL (camera-attached, changes per weapon) ──
+const handGroup = new THREE.Group();
+handGroup.position.set(0.17,-0.155,-0.32);
+handGroup.rotation.y = 0.1;
+camera.add(handGroup);
+scene.add(camera);
+
+// Muzzle flash — always present
+const flashMat = new THREE.MeshBasicMaterial({color:0xffee44,transparent:true,opacity:0});
+const flashMesh = new THREE.Mesh(new THREE.SphereGeometry(0.042,6,4), flashMat);
+handGroup.add(flashMesh);
+
+// Weapon visual definitions — each is a function that builds geometry into the group
+const WEAPON_VISUALS = [
+  // 0: Magnifying Glass 🔍 — golden circle with handle
+  function(g){
+    const gold = new THREE.MeshLambertMaterial({color:0xddaa00});
+    const glass = new THREE.MeshBasicMaterial({color:0x88ccff,transparent:true,opacity:0.5});
+    // Ring
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.055,0.012,8,20), gold);
+    ring.position.set(0,0.04,-0.12); ring.rotation.x=Math.PI/2; g.add(ring);
+    // Lens
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.044,16), glass);
+    lens.position.set(0,0.04,-0.12); lens.rotation.x=Math.PI/2; g.add(lens);
+    // Handle
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.015,0.18,8), gold);
+    handle.position.set(0.04,-0.05,-0.04); handle.rotation.z=-0.4; g.add(handle);
+    flashMesh.position.set(0,0.04,-0.17);
+  },
+  // 1: Bug Spray 💨 — cyan canister
+  function(g){
+    const can = new THREE.MeshLambertMaterial({color:0x00ccaa});
+    const noz = new THREE.MeshLambertMaterial({color:0x888888});
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.16,10), can);
+    body.position.set(0,0.01,-0.09); body.rotation.x=Math.PI/2; g.add(body);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.044,0.044,0.025,10), noz);
+    cap.position.set(0,0.01,-0.175); cap.rotation.x=Math.PI/2; g.add(cap);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,0.07,6), noz);
+    nozzle.position.set(0,0.045,-0.175); nozzle.rotation.x=0.4; g.add(nozzle);
+    flashMesh.position.set(0,0.075,-0.22);
+  },
+  // 2: Steel Boot 👢 — brown chunky boot shape
+  function(g){
+    const leather = new THREE.MeshLambertMaterial({color:0x5c3317});
+    const sole    = new THREE.MeshLambertMaterial({color:0x222222});
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.10,0.13,0.18), leather);
+    upper.position.set(0,0.01,-0.06); g.add(upper);
+    const toe = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.07,0.10), leather);
+    toe.position.set(0,-0.03,-0.16); g.add(toe);
+    const soleM = new THREE.Mesh(new THREE.BoxGeometry(0.11,0.02,0.27), sole);
+    soleM.position.set(0,-0.075,-0.09); g.add(soleM);
+    flashMesh.position.set(0,0,-0.22);
+  },
+  // 3: Flamethrower 🔥 — orange tank + tube
+  function(g){
+    const tank = new THREE.MeshLambertMaterial({color:0xcc3300});
+    const pipe = new THREE.MeshLambertMaterial({color:0x444444});
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,0.22,10), tank);
+    barrel.position.set(0,0.01,-0.1); barrel.rotation.x=Math.PI/2; g.add(barrel);
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,0.1,6), pipe);
+    tube.position.set(0.04,0.02,-0.12); tube.rotation.z=0.3; g.add(tube);
+    const nozzle = new THREE.Mesh(new THREE.ConeGeometry(0.025,0.06,8), pipe);
+    nozzle.position.set(0,0.01,-0.23); nozzle.rotation.x=-Math.PI/2; g.add(nozzle);
+    flashMesh.position.set(0,0.01,-0.27);
+    flashMesh.material = new THREE.MeshBasicMaterial({color:0xff6600,transparent:true,opacity:0});
+  },
+  // 4: Tweezers 🩺 — silver pincer
+  function(g){
+    const silver = new THREE.MeshLambertMaterial({color:0xbbbbcc});
+    const arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.012,0.012,0.22), silver);
+    arm1.position.set(0.02,0.01,-0.1); arm1.rotation.z=0.08; g.add(arm1);
+    const arm2 = new THREE.Mesh(new THREE.BoxGeometry(0.012,0.012,0.22), silver);
+    arm2.position.set(-0.02,0.01,-0.1); arm2.rotation.z=-0.08; g.add(arm2);
+    const grip2 = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.04,0.04), silver);
+    grip2.position.set(0,0.01,0.02); g.add(grip2);
+    flashMesh.position.set(0,0.01,-0.23);
+  },
+  // 5: Ant Acid ⚗️ — purple flask
+  function(g){
+    const purple = new THREE.MeshLambertMaterial({color:0x8800cc});
+    const glass2 = new THREE.MeshBasicMaterial({color:0xcc88ff,transparent:true,opacity:0.6});
+    const flask = new THREE.Mesh(new THREE.SphereGeometry(0.055,10,8), glass2);
+    flask.position.set(0,0.01,-0.09); g.add(flask);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.025,0.07,8), purple);
+    neck.position.set(0,0.01,-0.16); neck.rotation.x=Math.PI/2; g.add(neck);
+    const nozzle2 = new THREE.Mesh(new THREE.CylinderGeometry(0.01,0.01,0.06,6), purple);
+    nozzle2.position.set(0,0.01,-0.21); nozzle2.rotation.x=Math.PI/2; g.add(nozzle2);
+    flashMesh.position.set(0,0.01,-0.25);
+  },
+];
+
+// Current weapon visual index
+let _handWeaponIdx = -1;
+
+function rebuildHandWeapon(weaponIdx){
+  if(weaponIdx === _handWeaponIdx) return;
+  _handWeaponIdx = weaponIdx;
+  // Remove all children except flash
+  while(handGroup.children.length > 0) handGroup.remove(handGroup.children[0]);
+  handGroup.add(flashMesh); // re-add flash
+  if(weaponIdx >= 0 && WEAPON_VISUALS[weaponIdx]){
+    WEAPON_VISUALS[weaponIdx](handGroup);
+  }
+}
+
+// Build starting weapon visual
+rebuildHandWeapon(0);
+
+let recoilT=0, flashT=0;
+window._pistolFire = function(){
+  recoilT=0.16; flashT=0.09;
+};
+window._pistolUpdate = function(dt){
+  if(recoilT>0){
+    recoilT-=dt;
+    const k=Math.max(0,recoilT/0.16);
+    handGroup.position.z=-0.32+k*0.07;
+    handGroup.rotation.x=-k*0.22;
+  } else {
+    handGroup.position.z=-0.32;
+    handGroup.rotation.x=0;
+  }
+  if(flashT>0){
+    flashT-=dt;
+    flashMat.opacity=Math.max(0,flashT/0.09);
+    flashMesh.scale.setScalar(0.7+Math.random()*0.6);
+  } else { flashMat.opacity=0; }
+
+  // Sync weapon visual to active slot
+  const w = getCurWeapon();
+  if(w){
+    const wIdx = WEAPONS.indexOf(w);
+    if(wIdx !== _handWeaponIdx) rebuildHandWeapon(wIdx);
+  } else if(_handWeaponIdx !== -1){
+    rebuildHandWeapon(-1);
+  }
+};
+const keys={};
+const euler=new THREE.Euler(0,0,0,'YXZ');
+let yVel=0, onGround=true;
+const GRAVITY=-9.8, JUMP_VEL=4.5, SPEED=4.5;
+let hitFlashT=0;
+const _move=new THREE.Vector3();
+// Pre-allocated vectors for ant AI — avoids GC pressure each frame
+const _antToP=new THREE.Vector3();
+const _queenToP=new THREE.Vector3();
+
+// ── INPUT ────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(e.code==='KeyE') { tryPickup(); tryFoodPickup(); }
+  if(e.code==='KeyF') eatFood();
+  if(e.code==='Space'&&onGround&&!gameOver){yVel=JUMP_VEL;onGround=false;}
+  // Hotbar slot switch 1-5
+  const slotMap={'Digit1':0,'Digit2':1,'Digit3':2,'Digit4':3,'Digit5':4};
+  if(slotMap[e.code]!==undefined) setActiveSlot(slotMap[e.code]);
+  e.preventDefault();
+});
+window.addEventListener('keyup',e=>keys[e.code]=false);
+canvas.addEventListener('click',()=>{
+  if(!document.pointerLockElement){canvas.requestPointerLock();return;}
+  doAttack();
+});
+document.addEventListener('mousemove',e=>{
+  if(!document.pointerLockElement)return;
+  euler.setFromQuaternion(camera.quaternion);
+  euler.y-=e.movementX*0.0022;
+  euler.x-=e.movementY*0.0022;
+  euler.x=Math.max(-1.4,Math.min(1.4,euler.x));
+  camera.quaternion.setFromEuler(euler);
+});
+
+// ── INVENTORY + HOTBAR ───────────────────────────────────
+const MAX_SLOTS = 5;
+// inventory[i] = {weapon, ammo} or null
+const inventory = new Array(MAX_SLOTS).fill(null);
+let activeSlot = 0;   // 0-indexed
+
+function getCurWeapon(){ return inventory[activeSlot] ? inventory[activeSlot].weapon : null; }
+function getCurAmmo(){   return inventory[activeSlot] ? inventory[activeSlot].ammo   : 0;    }
+
+// Build hotbar DOM
+const hotbarEl = document.getElementById('hotbar');
+const slotEls  = [];
+const KEYS_DISPLAY = ['1','2','3','4','5'];
+for(let i=0;i<MAX_SLOTS;i++){
+  const div = document.createElement('div');
+  div.className = 'hslot empty';
+  div.innerHTML = `<div class="slot-icon"></div><div class="slot-name">EMPTY</div><div class="slot-ammo"></div><div class="slot-key">${KEYS_DISPLAY[i]}</div>`;
+  hotbarEl.appendChild(div);
+  slotEls.push(div);
+}
+
+function refreshHotbar(){
+  for(let i=0;i<MAX_SLOTS;i++){
+    const el   = slotEls[i];
+    const item = inventory[i];
+    el.classList.toggle('active', i === activeSlot);
+    if(item){
+      el.classList.remove('empty');
+      el.querySelector('.slot-icon').textContent = item.weapon.icon;
+      el.querySelector('.slot-name').textContent = item.weapon.name;
+      const ammoEl = el.querySelector('.slot-ammo');
+      ammoEl.textContent = item.ammo === -1 ? '∞' : item.ammo;
+    } else {
+      el.classList.add('empty');
+      el.querySelector('.slot-icon').textContent = '';
+      el.querySelector('.slot-name').textContent = 'EMPTY';
+      el.querySelector('.slot-ammo').textContent = '';
+    }
+  }
+}
+refreshHotbar();
+
+// ── Give player starting weapon (Magnifying Glass) ───────
+inventory[0] = { weapon: WEAPONS[0], ammo: -1 };
+setActiveSlot(0);
+
+// ── FOOD SYSTEM ──────────────────────────────────────────
+const FOODS = [
+  { name:'CRUMB',      icon:'🍞', heal:20, desc:'A bread crumb. Restores 20 HP.' },
+  { name:'BERRY',      icon:'🫐', heal:35, desc:'A wild berry. Restores 35 HP.' },
+  { name:'MUSHROOM',   icon:'🍄', heal:50, desc:'Forest mushroom. Restores 50 HP.' },
+  { name:'HONEY DROP', icon:'🍯', heal:70, desc:'Golden honey. Restores 70 HP.' },
+];
+
+let foodSlot = null;
+
+const foodSlotEl = document.createElement('div');
+foodSlotEl.className = 'hslot empty';
+foodSlotEl.style.cssText = 'border-color:rgba(80,200,80,0.4);min-width:68px;';
+foodSlotEl.innerHTML = '<div class="slot-icon"></div><div class="slot-name">NO FOOD</div><div class="slot-ammo"></div><div class="slot-key" style="color:rgba(80,220,80,0.7)">F</div>';
+const _fdiv = document.createElement('div');
+_fdiv.style.cssText='width:10px;height:1px;';
+hotbarEl.appendChild(_fdiv);
+hotbarEl.appendChild(foodSlotEl);
+
+function refreshFoodSlot(){
+  if(foodSlot && foodSlot.count > 0){
+    foodSlotEl.classList.remove('empty');
+    foodSlotEl.querySelector('.slot-icon').textContent = foodSlot.food.icon;
+    foodSlotEl.querySelector('.slot-name').textContent = foodSlot.food.name;
+    foodSlotEl.querySelector('.slot-ammo').textContent = 'x'+foodSlot.count;
+    foodSlotEl.style.borderColor='rgba(80,220,80,0.85)';
+  } else {
+    foodSlot = null;
+    foodSlotEl.classList.add('empty');
+    foodSlotEl.querySelector('.slot-icon').textContent='';
+    foodSlotEl.querySelector('.slot-name').textContent='NO FOOD';
+    foodSlotEl.querySelector('.slot-ammo').textContent='';
+    foodSlotEl.style.borderColor='rgba(80,200,80,0.4)';
+  }
+}
+refreshFoodSlot();
+
+const foodPickups = [];
+function spawnFood(t, foodIdx){
+  const pt = mainCurve.getPoint(t);
+  const f = FOODS[foodIdx];
+  const orb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 8, 7),
+    new THREE.MeshBasicMaterial({ color: 0x44ee44 })
+  );
+  orb.position.set(pt.x + rnd(-1.2,1.2), pt.y - 0.5, pt.z + rnd(-0.5,0.5));
+  scene.add(orb);
+  const lc = document.createElement('canvas');
+  lc.width=48;lc.height=48;
+  const lctx=lc.getContext('2d');
+  lctx.font='30px serif';lctx.textAlign='center';lctx.textBaseline='middle';
+  lctx.fillText(f.icon,24,26);
+  const ls=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(lc),depthTest:false}));
+  ls.scale.set(0.55,0.55,1);
+  ls.position.copy(orb.position);
+  ls.position.y += 0.45;
+  scene.add(ls);
+  const pl=new THREE.PointLight(0x44ff44,0.9,3);
+  pl.position.copy(orb.position);
+  scene.add(pl);
+  foodPickups.push({food:f,orb,ls,pl,pos:orb.position.clone(),active:true});
+}
+
+spawnFood(0.08, 0);
+spawnFood(0.22, 1);
+spawnFood(0.38, 2);
+spawnFood(0.52, 0);
+spawnFood(0.65, 3);
+spawnFood(0.78, 1);
+spawnFood(0.90, 2);
+
+function tryFoodPickup(){
+  let best=null,bestD=2.8;
+  foodPickups.forEach(p=>{
+    if(!p.active)return;
+    const d=camera.position.distanceTo(p.pos);
+    if(d<bestD){bestD=d;best=p;}
+  });
+  if(!best)return false;
+  best.active=false;
+  scene.remove(best.orb);scene.remove(best.ls);scene.remove(best.pl);
+  if(foodSlot && foodSlot.food.name===best.food.name){
+    foodSlot.count++;
+  } else {
+    foodSlot = { food: best.food, count: 1 };
+  }
+  refreshFoodSlot();
+  showMsg(best.food.icon+' Picked up '+best.food.name+'!\n'+best.food.desc+'\nPress F to eat',2000);
+  return true;
+}
+
+function eatFood(){
+  if(gameOver||gameWon)return;
+  if(!foodSlot||foodSlot.count<=0){ showMsg('NO FOOD\nFind glowing green orbs!',1400); return; }
+  if(playerHp>=100){ showMsg('Already at full health!',1200); return; }
+  const healAmt = foodSlot.food.heal;
+  playerHp=Math.min(100,playerHp+healAmt);
+  foodSlot.count--;
+  refreshFoodSlot();
+  foodSlotEl.style.boxShadow='0 0 18px rgba(80,255,80,0.9)';
+  setTimeout(()=>foodSlotEl.style.boxShadow='',500);
+  E.hp.textContent=Math.round(playerHp);
+  E.hpFill.style.width=playerHp+'%';
+  const pct=playerHp/100;
+  E.hpFill.style.background=pct>0.5?'linear-gradient(90deg,#8b2,#bf4)':pct>0.25?'linear-gradient(90deg,#aa4,#dd4)':'linear-gradient(90deg,#822,#f44)';
+  showMsg(foodSlot&&foodSlot.food?foodSlot.food.icon:'🍞'+' +'+healAmt+' HP! Health: '+Math.round(playerHp),1200);
+}
+
+
+function setActiveSlot(idx){
+  activeSlot = idx;
+  refreshHotbar();
+  const w = getCurWeapon();
+  if(w){
+    E.wIcon.textContent = w.icon;
+    E.wName.textContent = w.name;
+    E.wAmmo.textContent = getCurAmmo()===-1?'∞':getCurAmmo();
+    // Rebuild 3D hand model for new weapon
+    if(typeof rebuildHandWeapon!=='undefined') rebuildHandWeapon(WEAPONS.indexOf(w));
+  } else {
+    if(typeof rebuildHandWeapon!=='undefined') rebuildHandWeapon(-1);
+  }
+}
+
+// ── PICKUP ───────────────────────────────────────────────
+function tryPickup(){
+  let best=null,bestD=2.8;
+  pickups.forEach(p=>{
+    if(!p.active)return;
+    const d=camera.position.distanceTo(p.pos);
+    if(d<bestD){bestD=d;best=p;}
+  });
+  if(!best)return;
+
+  // Find empty slot, or replace active slot
+  let targetSlot = inventory.findIndex(s => s === null);
+  if(targetSlot === -1) targetSlot = activeSlot; // replace current
+
+  best.active=false;
+  scene.remove(best.orb);scene.remove(best.ring);scene.remove(best.pl);
+
+  const w = best.weapon;
+  inventory[targetSlot] = { weapon: w, ammo: w.ammo===-1?-1:w.ammo };
+  setActiveSlot(targetSlot);
+  showMsg(`${w.icon} ${w.name}  [Slot ${targetSlot+1}]\n${w.desc}`,1800);
+}
+
+// ── ATTACK ───────────────────────────────────────────────
+const ray=new THREE.Raycaster();
+function doAttack(){
+  if(gameOver||gameWon)return;
+  const curWeapon = getCurWeapon();
+  if(!curWeapon){showMsg('FIND A WEAPON FIRST\n[ E ] to pick up glowing orb',1600);return;}
+  if(attackCd>0)return;
+  const slot = inventory[activeSlot];
+  if(curWeapon.ammo!==-1){
+    if(slot.ammo<=0){showMsg('OUT OF AMMO\n[ E ] find more',1000);return;}
+    slot.ammo--;
+    slotEls[activeSlot].querySelector('.slot-ammo').textContent = slot.ammo;
+  }
+  attackCd=curWeapon.cd;
+  if(window._pistolFire) window._pistolFire();
+
+  E.xh.style.opacity='0.1';
+  setTimeout(()=>E.xh.style.opacity='1',80);
+
+  if(queenObj.alive){
+    ray.setFromCamera({x:0,y:0},camera);
+    const qhits=ray.intersectObject(queenMesh,true);
+    if(qhits.length>0&&qhits[0].distance<=curWeapon.range+1){
+      queenObj.hp-=curWeapon.dmg;
+      if(queenObj.hp<=0){
+        queenObj.alive=false;
+        scene.remove(queenMesh);
+        gameWon=true;
+        E.kfeed.innerHTML='👑 QUEEN DESTROYED';
+        E.qFill.style.width='0%';
+        showMsg('🏆 VICTORY\n\nThe Queen Ant is dead.\nThe colony crumbles.\n\nYou are the destroyer.',0);
+      } else {
+        drawQueenBar(queenObj.hp/queenObj.maxHp);
+        E.qFill.style.width=Math.max(0,queenObj.hp/queenObj.maxHp*100)+'%';
+      }
+      return;
+    }
+  }
+
+  const sphere=new THREE.Sphere();
+  ray.setFromCamera({x:0,y:0},camera); // set once before the loop
+  for(const ant of antObjs){
+    if(!ant.alive)continue;
+    const dist=camera.position.distanceTo(ant.pos);
+    if(dist>curWeapon.range+2.5)continue;
+    // Use a sphere sized to match 4.5x scaled ant body (~1.2 world-unit radius)
+    sphere.set(ant.pos,1.8);
+    if(ray.ray.intersectsSphere(sphere)){
+      ant.hp-=curWeapon.dmg;
+      ant.drawBar(Math.max(0,ant.hp/ant.maxHp));
+      if(ant.hp<=0){
+        ant.alive=false;
+        dummy.position.copy(ant.pos);
+        dummy.scale.setScalar(0);
+        dummy.updateMatrix();
+        antInstanced.setMatrixAt(ant.idx,dummy.matrix);
+        antInstanced.instanceMatrix.needsUpdate=true;
+        scene.remove(ant.hpGroup);
+        kills++;
+        E.kills.textContent=kills;
+        E.kfeed.textContent=`ELIMINATED ×${kills}`;
+        setTimeout(()=>{if(!E.kfeed.textContent.includes('QUEEN'))E.kfeed.textContent='';},2000);
+      }
+      break;
+    }
+  }
+}
+
+// ── HUD HELPERS ──────────────────────────────────────────
+let msgTimeout=null;
+function showMsg(txt,dur){
+  E.msg.innerHTML=txt.replace(/\n/g,'<br>');
+  E.msg.style.display='block';
+  if(msgTimeout)clearTimeout(msgTimeout);
+  if(dur>0)msgTimeout=setTimeout(()=>E.msg.style.display='none',dur);
+}
+function flashZone(name){
+  E.zFlash.textContent=name;
+  E.zFlash.style.opacity='1';
+  setTimeout(()=>E.zFlash.style.opacity='0',2500);
+}
+
+// ── PARTICLE SYSTEM ──────────────────────────────────────
+const PART_COUNT=120;
+const partGeo=new THREE.BufferGeometry();
+const partPos=new Float32Array(PART_COUNT*3);
+const partVel=[];
+for(let i=0;i<PART_COUNT;i++){
+  const t=rnd(0,1);
+  const pt=mainCurve.getPoint(t);
+  partPos[i*3]=pt.x+rnd(-1.5,1.5);
+  partPos[i*3+1]=pt.y+rnd(-0.5,1.5);
+  partPos[i*3+2]=pt.z+rnd(-1,1);
+  partVel.push(new THREE.Vector3(rnd(-0.02,0.02),rnd(-0.05,-0.01),rnd(-0.01,0.01)));
+}
+partGeo.setAttribute('position',new THREE.BufferAttribute(partPos,3));
+const partMat=new THREE.PointsMaterial({color:0x8b5a2b,size:0.03,transparent:true,opacity:0.35,sizeAttenuation:true});
+const particles=new THREE.Points(partGeo,partMat);
+scene.add(particles);
+
+// ── MAIN LOOP ────────────────────────────────────────────
+let lastZone='';
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),0.05);
+  const t=clock.elapsedTime;
+
+  if(!gameOver&&!gameWon){
+
+    // ── Player movement ──
+    attackCd=Math.max(0,attackCd-dt);
+    _move.set(0,0,0);
+    if(keys['KeyW']||keys['ArrowUp'])   _move.z-=1;
+    if(keys['KeyS']||keys['ArrowDown']) _move.z+=1;
+    if(keys['KeyA']||keys['ArrowLeft']) _move.x-=1;
+    if(keys['KeyD']||keys['ArrowRight'])_move.x+=1;
+    if(_move.lengthSq()>0){
+      _move.normalize().multiplyScalar(SPEED*dt);
+      _move.applyQuaternion(camera.quaternion);
+      _move.y=0;
+      camera.position.add(_move);
+    }
+    yVel+=GRAVITY*dt;
+    camera.position.y+=yVel*dt;
+    const fy=getFloorY(camera.position.x,camera.position.z);
+    if(camera.position.y<fy+1.55){camera.position.y=fy+1.55;yVel=0;onGround=true;}
+    else{onGround=false;}
+
+    camera.position.x=Math.max(-5,Math.min(5,camera.position.x));
+    camera.position.z=Math.max(-65,Math.min(12,camera.position.z));
+
+    // ── Zone detection ──
+    const py=camera.position.y;
+    const pz=camera.position.z;
+    let zone='SURFACE';
+    if(pz<-4)zone='UPPER TUNNELS';
+    if(py<-3)zone='MID TUNNELS';
+    if(py<-9)zone='DEEP COLONY';
+    if(py<-14)zone="QUEEN'S CHAMBER";
+    if(zone!==lastZone){
+      lastZone=zone;
+      E.depth.textContent=zone;
+      flashZone(zone);
+      if(zone==="QUEEN'S CHAMBER"){
+        E.qWrap.style.display='block';
+        showMsg("⚠ QUEEN'S CHAMBER ⚠\n\nShe is waiting.\nShe is angry.\nKill her.",3000);
+      }
+    }
+
+    // ── Ant AI — uses pre-allocated _antToP to avoid per-frame allocation ──
+    const MIN_RADIUS = 2.2; // ants must stay at least this far from player (XZ)
+    let antDirty=false;
+    for(const ant of antObjs){
+      if(!ant.alive)continue;
+      ant.bobT+=dt*4;
+      _antToP.subVectors(camera.position,ant.pos);
+      _antToP.y=0;
+      const dist=_antToP.length();
+
+      // Clamp ant Y to floor so they never go underground
+      const floorY = getFloorY(ant.pos.x, ant.pos.z);
+      ant.pos.y = floorY + 0.1; // sit just on top of floor
+
+      if(dist<14&&dist>MIN_RADIUS){
+        _antToP.normalize().multiplyScalar(ant.speed*dt);
+        ant.pos.x += _antToP.x;
+        ant.pos.z += _antToP.z;
+        // Re-clamp after move
+        ant.pos.y = getFloorY(ant.pos.x, ant.pos.z) + 0.1;
+      } else if(dist <= MIN_RADIUS){
+        // Push ant away so it can't slide under player
+        const pushBack = _antToP.clone().normalize().multiplyScalar(-(MIN_RADIUS - dist + 0.05));
+        ant.pos.x += pushBack.x;
+        ant.pos.z += pushBack.z;
+        ant.pos.y = getFloorY(ant.pos.x, ant.pos.z) + 0.1;
+      }
+
+      const angle=Math.atan2(
+        camera.position.x-ant.pos.x,
+        camera.position.z-ant.pos.z
+      );
+      dummy.position.copy(ant.pos);
+      dummy.position.y = ant.pos.y + Math.sin(ant.bobT)*0.04;
+      dummy.rotation.set(Math.sin(ant.bobT*0.5)*0.15,angle,0);
+      dummy.scale.setScalar(4.5);
+      dummy.updateMatrix();
+      antInstanced.setMatrixAt(ant.idx,dummy.matrix);
+      ant.hpGroup.position.set(ant.pos.x, ant.pos.y + 2.2, ant.pos.z);
+      antDirty=true;
+      if(dist<3.5){
+        ant.attackCd-=dt;
+        if(ant.attackCd<=0){
+          ant.attackCd=1.2;
+          playerHp=Math.max(0,playerHp-ant.dmg);
+          E.hp.textContent=Math.round(playerHp);
+          const pct=playerHp/100;
+          E.hpFill.style.width=pct*100+'%';
+          E.hpFill.style.background=
+            pct>0.5?'linear-gradient(90deg,#8b2,#bf4)':
+            pct>0.25?'linear-gradient(90deg,#b80,#fd4)':
+            'linear-gradient(90deg,#800,#f44)';
+          hitFlashT=0.2;
+          if(playerHp<=0){
+            gameOver=true;
+            showMsg('YOU DIED\n\nThe colony consumed you.\n\nRefresh to descend again.',0);
+          }
+        }
+      }
+    }
+    if(antDirty)antInstanced.instanceMatrix.needsUpdate=true;
+
+    // ── Queen AI — uses pre-allocated _queenToP ──
+    if(queenObj.alive){
+      queenObj.bobT+=dt*1.5;
+      _queenToP.subVectors(camera.position,queenObj.pos);
+      _queenToP.y=0;
+      const dist=_queenToP.length();
+      if(dist<18&&dist>0.1){
+        _queenToP.normalize().multiplyScalar(queenObj.speed*dt);
+        queenObj.pos.add(_queenToP);
+        queenMesh.position.copy(queenObj.pos);
+        queenMesh.position.y+=Math.sin(queenObj.bobT)*0.06;
+        queenMesh.rotation.y=Math.atan2(
+          camera.position.x-queenObj.pos.x,
+          camera.position.z-queenObj.pos.z
+        );
+        if(dist<3.5){
+          queenObj.attackCd-=dt;
+          if(queenObj.attackCd<=0){
+            queenObj.attackCd=0.7;
+            playerHp=Math.max(0,playerHp-queenObj.dmg);
+            E.hp.textContent=Math.round(playerHp);
+            const pct=playerHp/100;
+            E.hpFill.style.width=pct*100+'%';
+            hitFlashT=0.3;
+            if(playerHp<=0){gameOver=true;showMsg('YOU DIED\n\nThe Queen destroyed you.\n\nRefresh to try again.',0);}
+          }
+        }
+      }
+    }
+
+    // ── Damage flash ──
+    if(hitFlashT>0){
+      hitFlashT=Math.max(0,hitFlashT-dt);
+      E.dmg.style.background=`rgba(200,30,0,${hitFlashT*1.8})`;
+    }else{
+      E.dmg.style.background='rgba(200,30,0,0)';
+    }
+
+    // ── Pickup proximity hint + animation ──
+    let nearPickup=false;
+    pickups.forEach(p=>{
+      if(!p.active)return;
+      const d=camera.position.distanceTo(p.pos);
+      if(d<2.5)nearPickup=true;
+      p.orb.rotation.y+=dt*1.2;
+      p.ring.rotation.x+=dt*1.5;
+      p.ring.rotation.z+=dt*0.8;
+      p.orb.position.y=p.pos.y+Math.sin(t*2+p.t*10)*0.08;
+      p.ring.position.y=p.orb.position.y;
+    });
+    E.hint.style.opacity=nearPickup?'1':'0';
+    // Food proximity hint
+    if(typeof foodPickups!=='undefined'){
+      const nearFood=foodPickups.some(p=>p.active&&camera.position.distanceTo(p.pos)<2.8);
+      if(nearFood&&!nearPickup) { E.hint.style.opacity='1'; E.hint.textContent='[ E ] PICK UP FOOD'; }
+      else if(!nearFood&&!nearPickup) E.hint.textContent='[ E ] PICK UP WEAPON';
+    }
+
+    // ── Particle animation ──
+    const ppos=particles.geometry.attributes.position.array;
+    for(let i=0;i<PART_COUNT;i++){
+      ppos[i*3]+=partVel[i].x;
+      ppos[i*3+1]+=partVel[i].y;
+      ppos[i*3+2]+=partVel[i].z;
+      if(ppos[i*3+1]<getFloorY(ppos[i*3],ppos[i*3+2])){
+        const t2=rnd(0,1);
+        const pt=mainCurve.getPoint(t2);
+        ppos[i*3]=pt.x+rnd(-1,1);
+        ppos[i*3+1]=pt.y+1.2;
+        ppos[i*3+2]=pt.z+rnd(-0.5,0.5);
+      }
+    }
+    particles.geometry.attributes.position.needsUpdate=true;
+
+    // ── Queen pulse light ──
+    queenPulse.intensity=2.5+Math.sin(t*3.5)*1.2;
+
+    // ── Respawn surface ants ──
+    const alive=antObjs.filter(a=>a.alive&&!a.isQueen);
+    if(alive.length<6&&Math.random()<dt*0.3&&antInstanced.count<MAX_ANTS){
+      const st=rnd(0.01,0.35);
+      const pt=mainCurve.getPoint(st);
+      spawnAnt(pt.x+rnd(-1.5,1.5),pt.y-0.5,pt.z+rnd(-1,1));
+    }
+  }
+
+  if(window._pistolUpdate) window._pistolUpdate(dt);
+
+  // Animate food pickups
+  if(typeof foodPickups!=='undefined'){
+    foodPickups.forEach(p=>{
+      if(!p.active)return;
+      p.orb.position.y = p.pos.y + Math.sin(t*2+p.pos.x)*0.1;
+      p.ls.position.y  = p.pos.y + Math.sin(t*2+p.pos.x)*0.1 + 0.45;
+      p.orb.rotation.y += 0.02;
+    });
+  }
+
+  renderer.render(scene,camera);
+}
+
+// ── START ────────────────────────────────────────────────
+showMsg(
+  '🐜  ANT COLONY: DESCENT  🐜\n\n'+
+  'Click to lock mouse\n\n'+
+  'WASD — Move  |  Mouse — Look\n'+
+  'Click — Attack  |  E — Pick up\n'+
+  '1-5 — Switch weapon  |  F — Eat food\n'+
+  'Space — Jump\n\n'+
+  'You start armed. Find green orbs for food.\nDescend to the Queen\'s Chamber.\nDestroy her.',
+  6000
+);
+animate();
+</script>
+</body>
+</html>
