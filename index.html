@@ -966,7 +966,7 @@ function tryFoodPickup(){
   let best=null,bestD=2.8;
   foodPickups.forEach(p=>{
     if(!p.active)return;
-    const d=camera.position.distanceTo(p.pos);
+    const d=_camWP.distanceTo(p.pos);
     if(d<bestD){bestD=d;best=p;}
   });
   if(!best)return false;
@@ -1020,7 +1020,7 @@ function tryPickup(){
   let best=null,bestD=2.8;
   pickups.forEach(p=>{
     if(!p.active)return;
-    const d=camera.position.distanceTo(p.pos);
+    const d=_camWP.distanceTo(p.pos);
     if(d<bestD){bestD=d;best=p;}
   });
   if(!best)return;
@@ -1081,7 +1081,7 @@ function doAttack(){
   ray.setFromCamera({x:0,y:0},camera); // set once before the loop
   for(const ant of antObjs){
     if(!ant.alive)continue;
-    const dist=camera.position.distanceTo(ant.pos);
+    const dist=_camWP.distanceTo(ant.pos);
     if(dist>curWeapon.range+2.5)continue;
     // Use a sphere sized to match 4.5x scaled ant body (~1.2 world-unit radius)
     sphere.set(ant.pos,1.8);
@@ -1148,6 +1148,7 @@ xrDolly.add(camera); // dolly at origin so camera.local == camera.world in deskt
 const xrCtrl = [renderer.xr.getController(0), renderer.xr.getController(1)];
 xrCtrl.forEach(c => xrDolly.add(c));
 
+
 const _xrRayGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]);
 const _xrRayMat = new THREE.LineBasicMaterial({color:0x88ccff,transparent:true,opacity:0.45});
 let _xrLeftRay = null;
@@ -1157,6 +1158,21 @@ xrCtrl.forEach((c,i)=>{
   if(i===1) _xrLeftRay=line;
 });
 xrCtrl[0].addEventListener('selectstart',()=>{ if(!gameOver&&!gameWon) doAttack(); });
+
+// Right Grip (Squeeze) to Pick Up Weapons & Food
+xrCtrl[0].addEventListener('squeezestart', () => { 
+  if(!gameOver && !gameWon) {
+    tryPickup();
+    tryFoodPickup();
+  }
+});
+
+// Left Trigger (Select) to Eat Food
+xrCtrl[1].addEventListener('selectstart', () => { 
+  if(!gameOver && !gameWon) {
+    eatFood();
+  }
+});
 
 const _xrReticleGeo = new THREE.RingGeometry(0.18,0.26,28);
 _xrReticleGeo.rotateX(-Math.PI/2);
@@ -1318,7 +1334,7 @@ function animate(){
     for(const ant of antObjs){
       if(!ant.alive)continue;
       ant.bobT+=dt*4;
-      _antToP.subVectors(camera.position,ant.pos);
+      _antToP.subVectors(_camWP,ant.pos);
       _antToP.y=0;
       const dist=_antToP.length();
 
@@ -1340,10 +1356,7 @@ function animate(){
         ant.pos.y = getFloorY(ant.pos.x, ant.pos.z) + 0.1;
       }
 
-      const angle=Math.atan2(
-        camera.position.x-ant.pos.x,
-        camera.position.z-ant.pos.z
-      );
+      const angle=Math.atan2(_camWP.x-ant.pos.x, _camWP.z-ant.pos.z);
       dummy.position.copy(ant.pos);
       dummy.position.y = ant.pos.y + Math.sin(ant.bobT)*0.04;
       dummy.rotation.set(Math.sin(ant.bobT*0.5)*0.15,angle,0);
@@ -1365,9 +1378,33 @@ function animate(){
             pct>0.25?'linear-gradient(90deg,#b80,#fd4)':
             'linear-gradient(90deg,#800,#f44)';
           hitFlashT=0.2;
-          if(playerHp<=0){
+         if(playerHp<=0){
             gameOver=true;
             showMsg('YOU DIED\n\nThe colony consumed you.\n\nRefresh to descend again.',0);
+            
+            // Create a 3D Death screen exclusively for VR
+            if(renderer.xr.isPresenting) {
+              const deathCanvas = document.createElement('canvas'); 
+              deathCanvas.width = 512; deathCanvas.height = 256;
+              const ctx = deathCanvas.getContext('2d');
+              ctx.fillStyle = 'rgba(150, 0, 0, 0.85)'; 
+              ctx.fillRect(0, 0, 512, 256);
+              ctx.fillStyle = 'white'; 
+              ctx.font = 'bold 50px monospace'; 
+              ctx.textAlign = 'center';
+              ctx.fillText('YOU DIED', 256, 110);
+              ctx.font = '24px monospace';
+              ctx.fillText('Take off headset to restart', 256, 170);
+              
+              const tex = new THREE.CanvasTexture(deathCanvas);
+              const deathMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(1, 0.5), 
+                new THREE.MeshBasicMaterial({map: tex, transparent: true, depthTest: false})
+              );
+              // Position it 1 meter directly in front of the VR camera
+              deathMesh.position.set(0, 0, -1); 
+              camera.add(deathMesh);
+            }
           }
         }
       }
@@ -1377,7 +1414,7 @@ function animate(){
     // ── Queen AI — uses pre-allocated _queenToP ──
     if(queenObj.alive){
       queenObj.bobT+=dt*1.5;
-      _queenToP.subVectors(camera.position,queenObj.pos);
+      _queenToP.subVectors(_camWP,queenObj.pos);
       _queenToP.y=0;
       const dist=_queenToP.length();
       if(dist<18&&dist>0.1){
@@ -1386,8 +1423,8 @@ function animate(){
         queenMesh.position.copy(queenObj.pos);
         queenMesh.position.y+=Math.sin(queenObj.bobT)*0.06;
         queenMesh.rotation.y=Math.atan2(
-          camera.position.x-queenObj.pos.x,
-          camera.position.z-queenObj.pos.z
+          _camWP.x-queenObj.pos.x,
+          _camWP.z-queenObj.pos.z
         );
         if(dist<3.5){
           queenObj.attackCd-=dt;
@@ -1416,7 +1453,7 @@ function animate(){
     let nearPickup=false;
     pickups.forEach(p=>{
       if(!p.active)return;
-      const d=camera.position.distanceTo(p.pos);
+      const d=_camWP.distanceTo(p.pos);
       if(d<2.5)nearPickup=true;
       p.orb.rotation.y+=dt*1.2;
       p.ring.rotation.x+=dt*1.5;
@@ -1427,7 +1464,7 @@ function animate(){
     E.hint.style.opacity=nearPickup?'1':'0';
     // Food proximity hint
     if(typeof foodPickups!=='undefined'){
-      const nearFood=foodPickups.some(p=>p.active&&camera.position.distanceTo(p.pos)<2.8);
+      const nearFood=foodPickups.some(p=>p.active&&_camWP.distanceTo(p.pos)<2.8);
       if(nearFood&&!nearPickup) { E.hint.style.opacity='1'; E.hint.textContent='[ E ] PICK UP FOOD'; }
       else if(!nearFood&&!nearPickup) E.hint.textContent='[ E ] PICK UP WEAPON';
     }

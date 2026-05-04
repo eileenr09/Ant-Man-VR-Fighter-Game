@@ -79,10 +79,6 @@
 
   /* ─────────────── Surface ─────────────── */
 
-  // Ground plane — also used as XR teleportation raycast target
-  ANT.teleportFloor  = box(80, 0.4, 80, MAT.floor, 0, -0.2, 0);
-  ANT.teleportFloors = [ANT.teleportFloor]; // all walkable floors registered for VR teleport
-
   // Boulders / cover objects
   const boulderData = [
     [3.5, 0, -6, 1.0],
